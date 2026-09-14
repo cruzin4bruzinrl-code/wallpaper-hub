@@ -61,7 +61,7 @@ class VideoWallpaperService : WallpaperService() {
             prefs.edit().putBoolean("finished", false).apply()
 
             try {
-                val afd = assets.openFd("wallpaper.mp4")
+                val afd = assets.openFd("Wallpaper.mp4")
                 mediaPlayer = MediaPlayer().apply {
                     setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                     setSurface(surfaceHolder.surface)
@@ -81,7 +81,7 @@ class VideoWallpaperService : WallpaperService() {
         private fun showLastFrame(holder: SurfaceHolder) {
             releasePlayer()
             try {
-                val afd = assets.openFd("wallpaper.mp4")
+                val afd = assets.openFd("Wallpaper.mp4")
                 mediaPlayer = MediaPlayer().apply {
                     setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                     setSurface(holder.surface)
