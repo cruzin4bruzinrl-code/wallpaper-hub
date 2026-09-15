@@ -5,10 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
-import android.media.MediaPlayer
+import android.net.Uri
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
 import android.view.WindowManager
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 
 class VideoWallpaperService : WallpaperService() {
 
@@ -16,7 +19,7 @@ class VideoWallpaperService : WallpaperService() {
 
     inner class VideoEngine : Engine() {
 
-        private var mediaPlayer: MediaPlayer? = null
+        private var player: ExoPlayer? = null
         private var hasFinishedPlaying = false
         private var resolvedFileName: String? = null
 
@@ -68,7 +71,7 @@ class VideoWallpaperService : WallpaperService() {
 
         override fun onVisibilityChanged(visible: Boolean) {
             if (visible) {
-                if (!hasFinishedPlaying && mediaPlayer == null) {
+                if (!hasFinishedPlaying && player == null) {
                     playFromStart()
                 }
             } else {
@@ -83,17 +86,21 @@ class VideoWallpaperService : WallpaperService() {
             currentPrefs().edit().putBoolean("finished", false).apply()
 
             try {
-                val afd = assets.openFd(fileName)
-                mediaPlayer = MediaPlayer().apply {
-                    setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                    setSurface(surfaceHolder.surface)
-                    isLooping = false
-                    setOnCompletionListener {
-                        hasFinishedPlaying = true
-                        currentPrefs().edit().putBoolean("finished", true).apply()
-                    }
+                val uri = Uri.parse("asset:///$fileName")
+                player = ExoPlayer.Builder(this@VideoWallpaperService).build().apply {
+                    setVideoSurface(surfaceHolder.surface)
+                    setMediaItem(MediaItem.fromUri(uri))
+                    repeatMode = Player.REPEAT_MODE_OFF
+                    addListener(object : Player.Listener {
+                        override fun onPlaybackStateChanged(state: Int) {
+                            if (state == Player.STATE_ENDED) {
+                                hasFinishedPlaying = true
+                                currentPrefs().edit().putBoolean("finished", true).apply()
+                            }
+                        }
+                    })
                     prepare()
-                    start()
+                    playWhenReady = true
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -104,13 +111,18 @@ class VideoWallpaperService : WallpaperService() {
             val fileName = resolvedFileName ?: "Wallpaper.mp4"
             releasePlayer()
             try {
-                val afd = assets.openFd(fileName)
-                mediaPlayer = MediaPlayer().apply {
-                    setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                    setSurface(holder.surface)
-                    setOnPreparedListener { player ->
-                        player.seekTo(player.duration - 1)
-                    }
+                val uri = Uri.parse("asset:///$fileName")
+                player = ExoPlayer.Builder(this@VideoWallpaperService).build().apply {
+                    setVideoSurface(holder.surface)
+                    setMediaItem(MediaItem.fromUri(uri))
+                    addListener(object : Player.Listener {
+                        override fun onPlaybackStateChanged(state: Int) {
+                            if (state == Player.STATE_READY) {
+                                seekTo(duration - 1)
+                                playWhenReady = false
+                            }
+                        }
+                    })
                     prepare()
                 }
             } catch (e: Exception) {
@@ -119,14 +131,8 @@ class VideoWallpaperService : WallpaperService() {
         }
 
         private fun releasePlayer() {
-            mediaPlayer?.let {
-                try {
-                    it.stop()
-                } catch (_: Exception) {
-                }
-                it.release()
-            }
-            mediaPlayer = null
+            player?.release()
+            player = null
         }
 
         override fun onDestroy() {
