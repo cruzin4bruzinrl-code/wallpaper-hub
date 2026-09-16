@@ -1,5 +1,6 @@
 package com.robapps.wallpaperhub
 
+import android.app.WallpaperManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -8,7 +9,6 @@ import android.content.SharedPreferences
 import android.net.Uri
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
-import android.view.WindowManager
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -21,7 +21,7 @@ class VideoWallpaperService : WallpaperService() {
 
         private var player: ExoPlayer? = null
         private var hasFinishedPlaying = false
-        private var resolvedFileName: String? = null
+        private var isLockScreen = false
 
         private val prefsHome: SharedPreferences by lazy {
             getSharedPreferences("wallpaper_state_home", Context.MODE_PRIVATE)
@@ -31,7 +31,10 @@ class VideoWallpaperService : WallpaperService() {
         }
 
         private fun currentPrefs(): SharedPreferences =
-            if (resolvedFileName == "Lock.mp4") prefsLock else prefsHome
+            if (isLockScreen) prefsLock else prefsHome
+
+        private fun videoUri(): Uri =
+            Uri.parse(if (isLockScreen) "asset:///Lock.mp4" else "asset:///Wallpaper.mp4")
 
         private val unlockReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
@@ -41,25 +44,21 @@ class VideoWallpaperService : WallpaperService() {
             }
         }
 
-        private fun guessIsLockScreen(): Boolean {
-            return try {
-                val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                val screenHeight = wm.currentWindowMetrics.bounds.height()
-                val desired = desiredMinimumHeight
-                desired in 1 until (screenHeight - 50)
+        override fun onCreate(surfaceHolder: SurfaceHolder) {
+            super.onCreate(surfaceHolder)
+            // Officiell metod (Android 16 / API 36) - berättar exakt
+            // vilken yta denna engine-instans faktiskt renderar för.
+            // Ingen gissning längre.
+            isLockScreen = try {
+                (wallpaperFlags and WallpaperManager.FLAG_LOCK) != 0
             } catch (e: Exception) {
                 false
             }
-        }
-
-        override fun onCreate(surfaceHolder: SurfaceHolder) {
-            super.onCreate(surfaceHolder)
             registerReceiver(unlockReceiver, IntentFilter(Intent.ACTION_USER_PRESENT))
         }
 
         override fun onSurfaceCreated(holder: SurfaceHolder) {
             super.onSurfaceCreated(holder)
-            resolvedFileName = if (guessIsLockScreen()) "Lock.mp4" else "Wallpaper.mp4"
             hasFinishedPlaying = currentPrefs().getBoolean("finished", false)
 
             if (hasFinishedPlaying) {
@@ -80,16 +79,14 @@ class VideoWallpaperService : WallpaperService() {
         }
 
         private fun playFromStart() {
-            val fileName = resolvedFileName ?: "Wallpaper.mp4"
             releasePlayer()
             hasFinishedPlaying = false
             currentPrefs().edit().putBoolean("finished", false).apply()
 
             try {
-                val uri = Uri.parse("asset:///$fileName")
                 player = ExoPlayer.Builder(this@VideoWallpaperService).build().apply {
                     setVideoSurface(surfaceHolder.surface)
-                    setMediaItem(MediaItem.fromUri(uri))
+                    setMediaItem(MediaItem.fromUri(videoUri()))
                     repeatMode = Player.REPEAT_MODE_OFF
                     addListener(object : Player.Listener {
                         override fun onPlaybackStateChanged(state: Int) {
@@ -108,13 +105,11 @@ class VideoWallpaperService : WallpaperService() {
         }
 
         private fun showLastFrame(holder: SurfaceHolder) {
-            val fileName = resolvedFileName ?: "Wallpaper.mp4"
             releasePlayer()
             try {
-                val uri = Uri.parse("asset:///$fileName")
                 player = ExoPlayer.Builder(this@VideoWallpaperService).build().apply {
                     setVideoSurface(holder.surface)
-                    setMediaItem(MediaItem.fromUri(uri))
+                    setMediaItem(MediaItem.fromUri(videoUri()))
                     addListener(object : Player.Listener {
                         override fun onPlaybackStateChanged(state: Int) {
                             if (state == Player.STATE_READY) {
